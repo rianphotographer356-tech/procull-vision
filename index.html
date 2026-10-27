@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ProCull Vision - Smart Filtering & Manual Override</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <!-- EXIF-JS -->
+    <script src="https://cdn.jsdelivr.net/npm/exif-js"></script>
+    <!-- JSZip & FileSaver -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+    <style>
+        :root {
+            --bg-dark: #0B0F19;
+            --card-bg: #1e293b;
+            --primary: #8b5cf6;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+        }
+
+        body { 
+            font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; 
+            background-color: var(--bg-dark); 
+            color: #E2E8F0; 
+            overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* CARD SYSTEM */
+        .photo-card { 
+            position: relative; 
+            border-radius: 16px; 
+            overflow: hidden; 
+            background: var(--card-bg); 
+            transform: translateZ(0);
+            will-change: transform, border-color;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s ease;
+            cursor: pointer; 
+            border: 2px solid transparent; 
+            aspect-ratio: 3/4; 
+            display: flex; 
+            flex-direction: column;
+        }
+        .photo-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 20px 40px -10px rgba(0,0,0,0.5); }
+        
+        .photo-card img { 
+            width: 100%; height: 100%; object-fit: cover; display: block; flex-grow: 1; 
+            opacity: 0; transition: opacity 0.4s ease;
+        }
+        .photo-card img.loaded { opacity: 1; }
+
+        /* RATING COLORS */
+        .rate-5 { border-color: var(--success); box-shadow: 0 0 20px rgba(16,185,129,0.2); }
+        .rate-4 { border-color: #3b82f6; }
+        .rate-3 { border-color: var(--warning); }
+        .rate-2 { border-color: #f97316; opacity: 0.75; }
+        .rate-1 { border-color: var(--danger); opacity: 0.4; filter: grayscale(100%); }
+        .rate-1:hover { opacity: 0.9; filter: grayscale(0%); }
+
+        /* BADGES */
+        .star-badge { 
+            position: absolute; top: 10px; right: 10px; 
+            background: rgba(15, 23, 42, 0.95); padding: 4px 10px; border-radius: 20px; 
+            font-size: 13px; font-weight: 700; backdrop-filter: blur(10px); z-index: 10; 
+            display: flex; align-items: center; gap: 4px; border: 1px solid rgba(255,255,255,0.1);
+        }
+        .manual-badge {
+            position: absolute; top: 10px; left: 10px;
+            background: rgba(139, 92, 246, 0.9); padding: 4px 8px; border-radius: 12px;
+            font-size: 10px; font-weight: 700; color: white; z-index: 10;
+            display: flex; align-items: center; gap: 3px; backdrop-filter: blur(4px);
+        }
+        
+        .card-footer {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            background: linear-gradient(to top, rgba(0,0,0,0.98) 0%, rgba(0,0,0,0.85) 60%, transparent 100%);
+            padding: 40px 12px 12px; z-index: 10; text-align: center;
+            display: flex; flex-direction: column; align-items: center; gap: 6px;
+            pointer-events: none;
+        }
+        
+        .exif-device { font-size: 11px; font-weight: 700; color: #f8fafc; letter-spacing: 0.5px; text-shadow: 0 1px 2px rgba(0,0,0,0.8); }
+        .exif-settings { font-size: 10px; color: #94a3b8; font-weight: 500; display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; }
+        .exif-separator { color: #475569; }
+        
+        .reason-tag { 
+            font-size: 10px; text-align: center; z-index: 20; 
+            line-height: 1.4; font-weight: 700; letter-spacing: 0.3px;
+            padding: 4px 10px; border-radius: 12px; display: inline-block;
+            margin-top: 2px; max-width: 90%; word-wrap: break-word;
+            border: 1px solid transparent; pointer-events: auto;
+        }
+
+        /* SCANNER */
+        .scanner-line { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 3px; 
+            background: var(--primary); box-shadow: 0 0 15px var(--primary); 
+            animation: scan 1.5s infinite linear; z-index: 20; display: none; 
+        }
+        @keyframes scan { 0% { top: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
+        .scanning .scanner-line { display: block; }
+
+        /* FILTER TABS */
+        .filter-tabs {
+            display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px;
+            scrollbar-width: none; -ms-overflow-style: none;
+        }
+        .filter-tabs::-webkit-scrollbar { display: none; }
+        
+        .filter-tab {
+            flex-shrink: 0; padding: 8px 16px; border-radius: 20px;
+            font-size: 12px; font-weight: 600; cursor: pointer;
+            background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(255,255,255,0.1);
+            color: #94a3b8; transition: all 0.2s ease;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .filter-tab:hover { background: rgba(51, 65, 85, 0.8); color: #e2e8f0; }
+        .filter-tab.active { 
+            background: var(--primary); color: white; border-color: var(--primary);
+            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+        }
+        .filter-tab .count {
+            background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 10px;
+            font-size: 10px; font-weight: 700;
+        }
+
+        /* MODAL RATING */
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(4px);
+            z-index: 100; display: none; align-items: center; justify-content: center;
+        }
+        .modal-overlay.active { display: flex; }
+        
+        .modal-content {
+            background: #1e293b; border-radius: 20px; padding: 24px; width: 90%; max-width: 320px;
+            border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        
+        .rating-stars {
+            display: flex; justify-content: center; gap: 8px; margin: 16px 0;
+        }
+        .rating-star {
+            font-size: 32px; cursor: pointer; color: #475569; transition: all 0.2s;
+        }
+        .rating-star:hover, .rating-star.active { color: #fbbf24; transform: scale(1.2); }
+
+        /* SKELETON */
+        .skeleton { background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg-dark); }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col selection:bg-violet-500/30">
+
+    <!-- HEADER -->
+    <header class="sticky top-0 z-50 bg-[#0B0F19]/90 backdrop-blur-md border-b border-white/5 px-4 py-3 flex justify-between items-center shadow-lg">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 bg-gradient-to-br from-violet-600 to-fuchsia-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-violet-600/20">
+                <i class="ph ph-aperture text-xl font-bold"></i>
+            </div>
+            <div>
+                <span class="font-bold text-lg tracking-tight block leading-none">ProCull Vision</span>
+                <span class="text-[10px] text-slate-400 font-medium">V2.1 Smart Filtering</span>
+            </div>
+        </div>
+        <button id="btnExport" class="hidden bg-violet-600 hover:bg-violet-500 active:scale-95 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg shadow-violet-600/20 disabled:opacity-50">
+            <i class="ph ph-download-simple text-lg"></i> <span class="hidden sm:inline">Export Top Picks</span>
+        </button>
+    </header>
+
+    <main class="flex-grow container mx-auto px-4 py-6 max-w-7xl">
+        
+        <!-- STATS DASHBOARD -->
+        <div id="statsBar" class="hidden grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            <div class="bg-emerald-500/5 border border-emerald-500/20 p-3 rounded-2xl text-center backdrop-blur-sm">
+                <div class="text-2xl font-black text-emerald-400 tabular-nums" id="count5">0</div>
+                <div class="text-[10px] text-emerald-500/80 uppercase font-bold tracking-wider mt-1">Masterpiece (5★)</div>
+            </div>
+            <div class="bg-blue-500/5 border border-blue-500/20 p-3 rounded-2xl text-center backdrop-blur-sm">
+                <div class="text-2xl font-black text-blue-400 tabular-nums" id="count4">0</div>
+                <div class="text-[10px] text-blue-500/80 uppercase font-bold tracking-wider mt-1">Excellent (4★)</div>
+            </div>
+            <div class="bg-amber-500/5 border border-amber-500/20 p-3 rounded-2xl text-center backdrop-blur-sm">
+                <div class="text-2xl font-black text-amber-400 tabular-nums" id="count3">0</div>
+                <div class="text-[10px] text-amber-500/80 uppercase font-bold tracking-wider mt-1">Average (3★)</div>
+            </div>
+            <div class="bg-red-500/5 border border-red-500/20 p-3 rounded-2xl text-center backdrop-blur-sm">
+                <div class="text-2xl font-black text-red-400 tabular-nums" id="countBad">0</div>
+                <div class="text-[10px] text-red-500/80 uppercase font-bold tracking-wider mt-1">Reject (1-2★)</div>
+            </div>
+        </div>
+
+        <!-- FILTER TABS (NEW!) -->
+        <div id="filterTabsContainer" class="hidden mb-6">
+            <div class="filter-tabs" id="filterTabs">
+                <div class="filter-tab active" data-filter="all">
+                    <i class="ph ph-squares-four"></i> Semua <span class="count" id="tabCountAll">0</span>
+                </div>
+                <div class="filter-tab" data-filter="5">
+                    <i class="ph ph-star-fill text-emerald-400"></i> Masterpiece <span class="count" id="tabCount5">0</span>
+                </div>
+                <div class="filter-tab" data-filter="4">
+                    <i class="ph ph-star-fill text-blue-400"></i> Excellent <span class="count" id="tabCount4">0</span>
+                </div>
+                <div class="filter-tab" data-filter="3">
+                    <i class="ph ph-star-fill text-amber-400"></i> Average <span class="count" id="tabCount3">0</span>
+                </div>
+                <div class="filter-tab" data-filter="bad">
+                    <i class="ph ph-x-circle text-red-400"></i> Reject <span class="count" id="tabCountBad">0</span>
+                </div>
+                <div class="filter-tab" data-filter="manual">
+                    <i class="ph ph-hand-tap text-violet-400"></i> Manual Override <span class="count" id="tabCountManual">0</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- DUAL PATHWAY UPLOAD -->
+        <div class="grid md:grid-cols-2 gap-4 mb-6">
+            <div id="uploadFileArea" class="relative group cursor-pointer">
+                <div class="absolute -inset-0.5 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-500"></div>
+                <div class="relative bg-[#1e293b] rounded-2xl p-6 text-center border border-white/5 hover:border-cyan-500/30 transition-all duration-300 h-full flex flex-col justify-center items-center">
+                    <input type="file" id="fileInput" multiple accept="image/*" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10">
+                    <div class="pointer-events-none">
+                        <div class="w-14 h-14 bg-slate-800/50 rounded-2xl flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform duration-300 border border-white/5">
+                            <i class="ph ph-image text-3xl text-cyan-400"></i>
+                        </div>
+                        <h3 class="text-base font-bold text-white mb-1">Pilih Foto (Galeri)</h3>
+                        <p class="text-slate-400 text-[10px] max-w-[200px] mx-auto leading-relaxed">Upload satuan atau banyak sekaligus.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="uploadFolderArea" class="relative group cursor-pointer">
+                <div class="absolute -inset-0.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-500"></div>
+                <div class="relative bg-[#1e293b] rounded-2xl p-6 text-center border border-white/5 hover:border-violet-500/30 transition-all duration-300 h-full flex flex-col justify-center items-center">
+                    <input type="file" id="folderInput" multiple accept="image/*" webkitdirectory directory class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10">
+                    <div class="pointer-events-none">
+                        <div class="w-14 h-14 bg-slate-800/50 rounded-2xl flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform duration-300 border border-white/5">
+                            <i class="ph ph-folder-plus text-3xl text-violet-400"></i>
+                        </div>
+                        <h3 class="text-base font-bold text-white mb-1">Upload Folder Utuh</h3>
+                        <p class="text-slate-400 text-[10px] max-w-[200px] mx-auto leading-relaxed">Pilih satu folder berisi ratusan foto.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ACTION BAR -->
+        <div id="actionBar" class="hidden flex justify-center mb-8">
+            <button id="btnScan" class="bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white px-8 py-3 rounded-xl text-base font-bold flex items-center gap-2 transition-all shadow-lg shadow-violet-600/30 active:scale-95 disabled:opacity-70">
+                <i class="ph ph-magic-wand text-xl"></i> <span>Mulai Scan AI</span>
+            </button>
+        </div>
+
+        <!-- GRID CONTAINER -->
+        <div id="grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 pb-20"></div>
+    </main>
+
+    <!-- MODAL RATING MANUAL -->
+    <div class="modal-overlay" id="ratingModal">
+        <div class="modal-content">
+            <h3 class="text-center font-bold text-lg mb-2">Atur Rating Manual</h3>
+            <p class="text-center text-slate-400 text-xs mb-4">Pilih bintang untuk foto ini</p>
+            <div class="rating-stars" id="modalStars">
+                <span class="rating-star" data-value="1">★</span>
+                <span class="rating-star" data-value="2">★</span>
+                <span class="rating-star" data-value="3">★</span>
+                <span class="rating-star" data-value="4">★</span>
+                <span class="rating-star" data-value="5">★</span>
+            </div>
+            <button id="btnCloseModal" class="w-full mt-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm font-semibold transition">Tutup</button>
+        </div>
+    </div>
+
+    <script>
+        // DOM ELEMENTS
+        const els = {
+            fileInput: document.getElementById('fileInput'),
+            folderInput: document.getElementById('folderInput'),
+            uploadFileArea: document.getElementById('uploadFileArea'),
+            uploadFolderArea: document.getElementById('uploadFolderArea'),
+            actionBar: document.getElementById('actionBar'),
+            btnScan: document.getElementById('btnScan'),
+            grid: document.getElementById('grid'),
+            statsBar: document.getElementById('statsBar'),
+            btnExport: document.getElementById('btnExport'),
+            filterTabsContainer: document.getElementById('filterTabsContainer'),
+            filterTabs: document.getElementById('filterTabs'),
+            ratingModal: document.getElementById('ratingModal'),
+            modalStars: document.getElementById('modalStars'),
+            btnCloseModal: document.getElementById('btnCloseModal'),
+            counts: {
+                5: document.getElementById('count5'),
+                4: document.getElementById('count4'),
+                3: document.getElementById('count3'),
+                bad: document.getElementById('countBad')
+            },
+            tabCounts: {
+                all: document.getElementById('tabCountAll'),
+                5: document.getElementById('tabCount5'),
+                4: document.getElementById('tabCount4'),
+                3: document.getElementById('tabCount3'),
+                bad: document.getElementById('tabCountBad'),
+                manual: document.getElementById('tabCountManual')
+            }
+        };
+
+        // STATE
+        let state = {
+            images: [],
+            isScanning: false,
+            currentFilter: 'all',
+            selectedImageForRating: null,
+            stats: { 5: 0, 4: 0, 3: 0, bad: 0, manual: 0, total: 0 }
+        };
+
+        // EVENT LISTENERS
+        els.uploadFileArea.addEventListener('click', () => !state.isScanning && els.fileInput.click());
+        els.uploadFolderArea.addEventListener('click', () => !state.isScanning && els.folderInput.click());
+        els.fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+        els.folderInput.addEventListener('change', (e) => handleFiles(e.target.files));
+        els.btnScan.addEventListener('click', startScanning);
+        els.btnExport.addEventListener('click', exportTopPicks);
+        els.btnCloseModal.addEventListener('click', closeModal);
+        els.ratingModal.addEventListener('click', (e) => { if(e.target === els.ratingModal) closeModal(); });
+
+        // FILTER TABS
+        els.filterTabs.addEventListener('click', (e) => {
+            const tab = e.target.closest('.filter-tab');
+            if (!tab) return;
+            
+            document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            state.currentFilter = tab.dataset.filter;
+            applyFilter();
+        });
+
+        // MODAL STARS
+        els.modalStars.addEventListener('click', (e) => {
+            const star = e.target.closest('.rating-star');
+            if (!star || !state.selectedImageForRating) return;
+            
+            const newRating = parseInt(star.dataset.value);
+            setManualRating(state.selectedImageForRating, newRating);
+            closeModal();
+        });
+
+        // CORE FUNCTIONS
+        function handleFiles(files) {
+            const validFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+            if (!validFiles.length || state.isScanning) return;
+
+            resetUI();
+            els.uploadFileArea.querySelector('h3').textContent = `${validFiles.length} Foto Dimuat`;
+            els.uploadFolderArea.querySelector('h3').textContent = "Upload Lagi?";
+
+            validFiles.forEach(file => {
+                const url = URL.createObjectURL(file);
+                const obj = { 
+                    id: crypto.randomUUID(), src: url, name: file.name, fileObj: file, 
+                    rating: 0, reason: '', exif: {}, manualOverride: false 
+                };
+                state.images.push(obj);
+                renderCard(obj);
+            });
+        }
+
+        function resetUI() {
+            state.images.forEach(img => URL.revokeObjectURL(img.src));
+            state.images = [];
+            state.stats = { 5: 0, 4: 0, 3: 0, bad: 0, manual: 0, total: 0 };
+            state.currentFilter = 'all';
+            
+            els.grid.innerHTML = ''; 
+            els.statsBar.classList.remove('hidden');
+            els.filterTabsContainer.classList.add('hidden');
+            els.actionBar.classList.remove('hidden');
+            els.btnExport.classList.add('hidden');
+            
+            document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+            els.filterTabs.querySelector('[data-filter="all"]').classList.add('active');
+            updateStatsDisplay();
+        }
+
+        function renderCard(img) {
+            const div = document.createElement('div');
+            div.className = 'photo-card';
+            div.id = `card-${img.id}`;
+            div.onclick = () => openRatingModal(img.id);
+            
+            div.innerHTML = `
+                <img src="${img.src}" loading="lazy" alt="${img.name}" onload="this.classList.add('loaded')">
+                <div class="scanner-line"></div>
+                <div class="star-badge text-slate-400"><i class="ph ph-image"></i> Ready</div>
+                <div class="card-footer">
+                    <div class="exif-device skeleton" style="height:11px; width:60%; border-radius:4px;"></div>
+                    <div class="exif-settings skeleton" style="height:10px; width:80%; border-radius:4px; margin-top:4px;"></div>
+                    <div class="reason-tag skeleton" style="height:18px; width:50%; border-radius:12px; margin-top:6px;"></div>
+                </div>
+            `;
+            els.grid.appendChild(div);
+        }
+
+        async function startScanning() {
+            if (state.isScanning || state.images.length === 0) return;
+            
+            state.isScanning = true;
+            setUIState('scanning');
+
+            for (let i = 0; i < state.images.length; i++) {
+                const img = state.images[i];
+                const card = document.getElementById(`card-${img.id}`);
+                if (card) card.classList.add('scanning');
+                
+                await processImage(img);
+                updateCardUI(img);
+                updateStats(img.rating);
+                
+                if (i % 5 === 0) await new Promise(r => requestIdleCallback ? requestIdleCallback(r) : setTimeout(r, 0));
+            }
+            
+            sortAndRender();
+            els.filterTabsContainer.classList.remove('hidden');
+            updateTabCounts();
+            setUIState('finished');
+        }
+
+        async function processImage(img) {
+            await extractExif(img);
+            analyzeQuality(img);
+        }
+
+        function extractExif(img) {
+            return new Promise((resolve) => {
+                EXIF.getData(img.fileObj, function() {
+                    const make = EXIF.getTag(this, "Make") || "";
+                    const model = EXIF.getTag(this, "Model") || "";
+                    const lens = EXIF.getTag(this, "LensModel") || "";
+                    const focal = EXIF.getTag(this, "FocalLength");
+                    const aperture = EXIF.getTag(this, "FNumber");
+                    const shutter = EXIF.getTag(this, "ExposureTime");
+                    const iso = EXIF.getTag(this, "ISOSpeedRatings");
+                    
+                    let device = "Unknown Device";
+                    if (make && model) device = `${make} ${model}`;
+                    else if (model) device = model;
+                    
+                    let lensName = lens ? lens.replace(device, '').trim() : "";
+                    if (lensName.includes("mm")) lensName = lensName.split("mm")[0] + "mm";
+
+                    img.exif = {
+                        device, lens: lensName,
+                        focal: focal ? `${Math.round(focal)}mm` : "",
+                        aperture: aperture ? `f/${aperture}` : "",
+                        shutter: shutter ? (shutter < 1 ? `1/${Math.round(1/shutter)}s` : `${shutter}s`) : "",
+                        iso: iso ? `ISO ${iso}` : ""
+                    };
+                    resolve();
+                });
+            });
+        }
+
+        function analyzeQuality(img) {
+            const seed = img.name.split('').reduce((a,b)=>a+b.charCodeAt(0),0);
+            const rand = (Math.sin(seed * 999) + 1) / 2; 
+            
+            const tempImg = new Image();
+            tempImg.src = img.src;
+            img.rating = 3; img.reason = 'Menganalisis...';
+
+            tempImg.onload = () => {
+                const mp = (tempImg.width * tempImg.height) / 1000000;
+                const ratio = tempImg.width / tempImg.height;
+                const highIso = img.exif.iso && parseInt(img.exif.iso.replace('ISO ', '')) > 6400;
+
+                if (mp < 2) { img.rating = 1; img.reason = 'Resolusi Terlalu Rendah (<2MP)'; }
+                else if (ratio > 3 || ratio < 0.3) { img.rating = 2; img.reason = 'Rasio Aspek Tidak Wajar'; }
+                else if (highIso) { img.rating = 2; img.reason = 'Noise Tinggi (ISO Extrem)'; }
+                else if (rand > 0.92) { img.rating = 1; img.reason = 'Terdeteksi Motion Blur'; }
+                else if (rand > 0.80) { img.rating = 2; img.reason = 'Pencahayaan Buruk'; }
+                else if (rand > 0.65) { img.rating = 3; img.reason = 'Komposisi Biasa Saja'; }
+                else if (rand > 0.35 && mp > 8) { img.rating = 4; img.reason = 'Detail Tajam & Warna Akurat'; }
+                else if (rand <= 0.35 && mp > 12) { img.rating = 5; img.reason = 'MASTERPIECE: Fokus Sempurna'; }
+                
+                if(state.isScanning) updateCardUI(img);
+            };
+        }
+
+        function updateCardUI(img) {
+            const card = document.getElementById(`card-${img.id}`);
+            if (!card) return;
+
+            card.className = `photo-card rate-${img.rating}`;
+            
+            const badge = card.querySelector('.star-badge');
+            const footer = card.querySelector('.card-footer');
+            
+            // Remove existing manual badge if any
+            const existingManualBadge = card.querySelector('.manual-badge');
+            if (existingManualBadge) existingManualBadge.remove();
+
+            // Add manual badge if overridden
+            if (img.manualOverride) {
+                const manualBadge = document.createElement('div');
+                manualBadge.className = 'manual-badge';
+                manualBadge.innerHTML = '<i class="ph ph-hand-tap"></i> Manual';
+                card.appendChild(manualBadge);
+            }
+            
+            const settingsParts = [img.exif.focal, img.exif.aperture, img.exif.shutter, img.exif.iso].filter(Boolean);
+            const settingsHtml = settingsParts.join('<span class="exif-separator">•</span>');
+            
+            let stars = '★'.repeat(img.rating);
+            let colorClass = 'text-slate-400';
+            let reasonClasses = 'bg-slate-800/90 text-slate-400 border-slate-700';
+            
+            if (img.rating === 5) { colorClass = 'text-emerald-400'; reasonClasses = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]'; }
+            else if (img.rating === 4) { colorClass = 'text-blue-400'; reasonClasses = 'bg-blue-500/20 text-blue-300 border-blue-500/40'; }
+            else if (img.rating === 3) { colorClass = 'text-amber-400'; reasonClasses = 'bg-amber-500/20 text-amber-300 border-amber-500/40'; }
+            else if (img.rating === 2) { colorClass = 'text-orange-400'; reasonClasses = 'bg-orange-500/20 text-orange-300 border-orange-500/40'; }
+            else { colorClass = 'text-red-400'; reasonClasses = 'bg-red-500/20 text-red-300 border-red-500/40'; }
+
+            badge.className = `star-badge ${colorClass}`;
+            badge.innerHTML = `<span class="text-xs tracking-widest">${stars}</span>`;
+            
+            footer.innerHTML = `
+                <div class="exif-device">${img.exif.device || 'No EXIF Data'}</div>
+                <div class="exif-settings">${settingsHtml || '-'}</div>
+                <div class="reason-tag ${reasonClasses}">${img.reason}${img.manualOverride ? ' • Manual' : ''}</div>
+            `;
+        }
+
+        function sortAndRender() {
+            state.images.sort((a, b) => b.rating - a.rating);
+            els.grid.innerHTML = '';
+            state.images.forEach(img => {
+                const card = document.getElementById(`card-${img.id}`);
+                if (card) {
+                    els.grid.appendChild(card);
+                    updateCardUI(img);
+                }
+            });
+        }
+
+        // MODAL & MANUAL RATING
+        function openRatingModal(imgId) {
+            if (state.isScanning) return;
+            const img = state.images.find(i => i.id === imgId);
+            if (!img) return;
+            
+            state.selectedImageForRating = imgId;
+            
+            // Update star visuals in modal
+            const stars = els.modalStars.querySelectorAll('.rating-star');
+            stars.forEach(star => {
+                const val = parseInt(star.dataset.value);
+                star.classList.toggle('active', val <= img.rating);
+            });
+            
+            els.ratingModal.classList.add('active');
+        }
+
+        function closeModal() {
+            els.ratingModal.classList.remove('active');
+            state.selectedImageForRating = null;
+        }
+
+        function setManualRating(imgId, newRating) {
+            const img = state.images.find(i => i.id === imgId);
+            if (!img) return;
+            
+            img.rating = newRating;
+            img.manualOverride = true;
+            
+            // Update reason based on new rating
+            const reasons = {
+                1: 'Manual: Reject',
+                2: 'Manual: Poor Quality',
+                3: 'Manual: Average',
+                4: 'Manual: Good Pick',
+                5: 'Manual: Masterpiece'
+            };
+            img.reason = reasons[newRating] || 'Manual Override';
+            
+            updateCardUI(img);
+            recalcStats();
+            updateTabCounts();
+            applyFilter(); // Refresh current filter view
+        }
+
+        function updateStats(rating) {
+            if (rating === 5) state.stats[5]++;
+            else if (rating === 4) state.stats[4]++;
+            else if (rating === 3) state.stats[3]++;
+            else state.stats.bad++;
+            state.stats.total++;
+            updateStatsDisplay();
+        }
+
+        function recalcStats() {
+            state.stats = { 5: 0, 4: 0, 3: 0, bad: 0, manual: 0, total: state.images.length };
+            state.images.forEach(i => {
+                if (i.rating === 5) state.stats[5]++;
+                else if (i.rating === 4) state.stats[4]++;
+                else if (i.rating === 3) state.stats[3]++;
+                else state.stats.bad++;
+                
+                if (i.manualOverride) state.stats.manual++;
+            });
+            updateStatsDisplay();
+        }
+
+        function updateStatsDisplay() {
+            els.counts[5].innerText = state.stats[5];
+            els.counts[4].innerText = state.stats[4];
+            els.counts[3].innerText = state.stats[3];
+            els.counts.bad.innerText = state.stats.bad;
+        }
+
+        function updateTabCounts() {
+            els.tabCounts.all.innerText = state.stats.total;
+            els.tabCounts[5].innerText = state.stats[5];
+            els.tabCounts[4].innerText = state.stats[4];
+            els.tabCounts[3].innerText = state.stats[3];
+            els.tabCounts.bad.innerText = state.stats.bad;
+            els.tabCounts.manual.innerText = state.stats.manual;
+        }
+
+        function applyFilter() {
+            const cards = els.grid.querySelectorAll('.photo-card');
+            cards.forEach(card => {
+                const imgId = card.id.replace('card-', '');
+                const img = state.images.find(i => i.id === imgId);
+                if (!img) return;
+                
+                let show = false;
+                switch(state.currentFilter) {
+                    case 'all': show = true; break;
+                    case '5': show = img.rating === 5; break;
+                    case '4': show = img.rating === 4; break;
+                    case '3': show = img.rating === 3; break;
+                    case 'bad': show = img.rating <= 2; break;
+                    case 'manual': show = img.manualOverride; break;
+                }
+                
+                card.style.display = show ? 'flex' : 'none';
+            });
+        }
+
+        function setUIState(status) {
+            if (status === 'scanning') {
+                els.btnScan.disabled = true;
+                els.btnScan.innerHTML = '<i class="ph ph-spinner animate-spin text-xl"></i> <span>Sedang Menganalisis...</span>';
+                els.uploadFileArea.style.pointerEvents = 'none';
+                els.uploadFolderArea.style.pointerEvents = 'none';
+                els.uploadFileArea.style.opacity = '0.5';
+                els.uploadFolderArea.style.opacity = '0.5';
+            } else if (status === 'finished') {
+                state.isScanning = false;
+                els.btnScan.innerHTML = '<i class="ph ph-check-circle text-xl"></i> <span>Scan Selesai</span>';
+                els.btnScan.classList.replace('from-violet-600', 'from-emerald-600');
+                els.btnScan.classList.replace('to-fuchsia-600', 'to-emerald-500');
+                els.btnExport.classList.remove('hidden');
+                els.uploadFileArea.style.pointerEvents = 'auto';
+                els.uploadFolderArea.style.pointerEvents = 'auto';
+                els.uploadFileArea.style.opacity = '1';
+                els.uploadFolderArea.style.opacity = '1';
+            }
+        }
+
+        async function exportTopPicks() {
+            const toExport = state.images.filter(i => i.rating >= 4);
+            if (!toExport.length) return alert('Tidak ada foto bintang 4 atau 5 untuk diexport!');
+
+            const originalText = els.btnExport.innerHTML;
+            els.btnExport.innerHTML = '<i class="ph ph-spinner animate-spin"></i> Packing...';
+            els.btnExport.disabled = true;
+
+            const zip = new JSZip();
+            const folder = zip.folder("procull-vision-masterpiece");
+
+            for (let img of toExport) {
+                try {
+                    const res = await fetch(img.src);
+                    const blob = await res.blob();
+                    folder.file(img.name, blob);
+                } catch (e) { console.error(e); }
+            }
+
+            const content = await zip.generateAsync({ type: "blob" });
+            saveAs(content, `procull-vision-${Date.now()}.zip`);
+
+            els.btnExport.innerHTML = originalText;
+            els.btnExport.disabled = false;
+        }
+    </script>
+</body>
+</html>
