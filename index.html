@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ProCull Vision - Smart Filtering & Manual Override</title>
+    <title>ProCull Vision - Smart Toggle & Export</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -71,12 +71,15 @@
             font-size: 13px; font-weight: 700; backdrop-filter: blur(10px); z-index: 10; 
             display: flex; align-items: center; gap: 4px; border: 1px solid rgba(255,255,255,0.1);
         }
-        .manual-badge {
+        .check-badge {
             position: absolute; top: 10px; left: 10px;
-            background: rgba(139, 92, 246, 0.9); padding: 4px 8px; border-radius: 12px;
+            background: rgba(16, 185, 129, 0.95); padding: 4px 8px; border-radius: 12px;
             font-size: 10px; font-weight: 700; color: white; z-index: 10;
             display: flex; align-items: center; gap: 3px; backdrop-filter: blur(4px);
+            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
         }
+        @keyframes popIn { 0% { transform: scale(0); } 100% { transform: scale(1); } }
         
         .card-footer {
             position: absolute; bottom: 0; left: 0; right: 0;
@@ -107,7 +110,7 @@
         @keyframes scan { 0% { top: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
         .scanning .scanner-line { display: block; }
 
-        /* FILTER TABS */
+        /* FILTER TABS WITH TOGGLE STATE */
         .filter-tabs {
             display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px;
             scrollbar-width: none; -ms-overflow-style: none;
@@ -119,16 +122,32 @@
             font-size: 12px; font-weight: 600; cursor: pointer;
             background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(255,255,255,0.1);
             color: #94a3b8; transition: all 0.2s ease;
-            display: flex; align-items: center; gap: 6px;
+            display: flex; align-items: center; gap: 6px; user-select: none;
         }
         .filter-tab:hover { background: rgba(51, 65, 85, 0.8); color: #e2e8f0; }
+        
+        /* Active State = Sedang Melihat Filter Ini */
         .filter-tab.active { 
             background: var(--primary); color: white; border-color: var(--primary);
             box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
         }
+        
+        /* Checked State = Fitur Centang Massal Aktif untuk Tab Ini */
+        .filter-tab.checked {
+            background: rgba(16, 185, 129, 0.15); 
+            border-color: var(--success); 
+            color: var(--success);
+        }
+        .filter-tab.checked.active {
+            background: var(--success); 
+            color: white; 
+            border-color: var(--success);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+        }
+
         .filter-tab .count {
             background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 10px;
-            font-size: 10px; font-weight: 700;
+            font-size: 10px; font-weight: 700; min-width: 20px; text-align: center;
         }
 
         /* MODAL RATING */
@@ -170,11 +189,11 @@
             </div>
             <div>
                 <span class="font-bold text-lg tracking-tight block leading-none">ProCull Vision</span>
-                <span class="text-[10px] text-slate-400 font-medium">V2.1 Smart Filtering</span>
+                <span class="text-[10px] text-slate-400 font-medium">Smart Toggle & Export</span>
             </div>
         </div>
-        <button id="btnExport" class="hidden bg-violet-600 hover:bg-violet-500 active:scale-95 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg shadow-violet-600/20 disabled:opacity-50">
-            <i class="ph ph-download-simple text-lg"></i> <span class="hidden sm:inline">Export Top Picks</span>
+        <button id="btnExport" class="hidden bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg shadow-emerald-600/20 disabled:opacity-50">
+            <i class="ph ph-download-simple text-lg"></i> <span class="hidden sm:inline">Export Selected</span>
         </button>
     </header>
 
@@ -200,26 +219,27 @@
             </div>
         </div>
 
-        <!-- FILTER TABS (NEW!) -->
+        <!-- FILTER TABS (TOGGLE MODE) -->
         <div id="filterTabsContainer" class="hidden mb-6">
             <div class="filter-tabs" id="filterTabs">
                 <div class="filter-tab active" data-filter="all">
                     <i class="ph ph-squares-four"></i> Semua <span class="count" id="tabCountAll">0</span>
                 </div>
-                <div class="filter-tab" data-filter="5">
-                    <i class="ph ph-star-fill text-emerald-400"></i> Masterpiece <span class="count" id="tabCount5">0</span>
+                <!-- TAB BINTANG SEKARANG BISA DI-KLIK UNTUK CENTANG MASSAL -->
+                <div class="filter-tab" data-filter="5" data-toggle="check">
+                    <i class="ph ph-star-fill text-emerald-400"></i> Centang 5★ <span class="count" id="tabCount5">0</span>
                 </div>
-                <div class="filter-tab" data-filter="4">
-                    <i class="ph ph-star-fill text-blue-400"></i> Excellent <span class="count" id="tabCount4">0</span>
+                <div class="filter-tab" data-filter="4" data-toggle="check">
+                    <i class="ph ph-star-fill text-blue-400"></i> Centang 4★ <span class="count" id="tabCount4">0</span>
                 </div>
-                <div class="filter-tab" data-filter="3">
-                    <i class="ph ph-star-fill text-amber-400"></i> Average <span class="count" id="tabCount3">0</span>
+                <div class="filter-tab" data-filter="3" data-toggle="check">
+                    <i class="ph ph-star-fill text-amber-400"></i> Centang 3★ <span class="count" id="tabCount3">0</span>
                 </div>
-                <div class="filter-tab" data-filter="bad">
-                    <i class="ph ph-x-circle text-red-400"></i> Reject <span class="count" id="tabCountBad">0</span>
+                <div class="filter-tab" data-filter="bad" data-toggle="check">
+                    <i class="ph ph-x-circle text-red-400"></i> Centang Reject <span class="count" id="tabCountBad">0</span>
                 </div>
-                <div class="filter-tab" data-filter="manual">
-                    <i class="ph ph-hand-tap text-violet-400"></i> Manual Override <span class="count" id="tabCountManual">0</span>
+                <div class="filter-tab" data-filter="checked">
+                    <i class="ph ph-check-square-offset text-emerald-400"></i> Lihat Tercentang <span class="count" id="tabCountChecked">0</span>
                 </div>
             </div>
         </div>
@@ -311,7 +331,7 @@
                 4: document.getElementById('tabCount4'),
                 3: document.getElementById('tabCount3'),
                 bad: document.getElementById('tabCountBad'),
-                manual: document.getElementById('tabCountManual')
+                checked: document.getElementById('tabCountChecked')
             }
         };
 
@@ -321,7 +341,7 @@
             isScanning: false,
             currentFilter: 'all',
             selectedImageForRating: null,
-            stats: { 5: 0, 4: 0, 3: 0, bad: 0, manual: 0, total: 0 }
+            stats: { 5: 0, 4: 0, 3: 0, bad: 0, checked: 0, total: 0 }
         };
 
         // EVENT LISTENERS
@@ -334,14 +354,28 @@
         els.btnCloseModal.addEventListener('click', closeModal);
         els.ratingModal.addEventListener('click', (e) => { if(e.target === els.ratingModal) closeModal(); });
 
-        // FILTER TABS
+        // FILTER TABS LOGIC (WITH TOGGLE CHECK)
         els.filterTabs.addEventListener('click', (e) => {
             const tab = e.target.closest('.filter-tab');
             if (!tab) return;
             
+            const filterType = tab.dataset.filter;
+            const isToggle = tab.dataset.toggle === 'check';
+
+            // Jika tab punya atribut data-toggle="check", maka fungsinya jadi Toggle Centang
+            if (isToggle) {
+                toggleCheckByRating(filterType);
+                // Update visual tab checked
+                updateTabVisuals();
+                // Refresh tampilan grid sesuai filter yang sedang aktif
+                applyFilter();
+                return;
+            }
+
+            // Jika bukan toggle, maka fungsinya normal (ganti view filter)
             document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
-            state.currentFilter = tab.dataset.filter;
+            state.currentFilter = filterType;
             applyFilter();
         });
 
@@ -368,7 +402,7 @@
                 const url = URL.createObjectURL(file);
                 const obj = { 
                     id: crypto.randomUUID(), src: url, name: file.name, fileObj: file, 
-                    rating: 0, reason: '', exif: {}, manualOverride: false 
+                    rating: 0, reason: '', exif: {}, isChecked: false 
                 };
                 state.images.push(obj);
                 renderCard(obj);
@@ -378,7 +412,7 @@
         function resetUI() {
             state.images.forEach(img => URL.revokeObjectURL(img.src));
             state.images = [];
-            state.stats = { 5: 0, 4: 0, 3: 0, bad: 0, manual: 0, total: 0 };
+            state.stats = { 5: 0, 4: 0, 3: 0, bad: 0, checked: 0, total: 0 };
             state.currentFilter = 'all';
             
             els.grid.innerHTML = ''; 
@@ -387,7 +421,10 @@
             els.actionBar.classList.remove('hidden');
             els.btnExport.classList.add('hidden');
             
-            document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.filter-tab').forEach(t => {
+                t.classList.remove('active');
+                t.classList.remove('checked');
+            });
             els.filterTabs.querySelector('[data-filter="all"]').classList.add('active');
             updateStatsDisplay();
         }
@@ -505,16 +542,16 @@
             const badge = card.querySelector('.star-badge');
             const footer = card.querySelector('.card-footer');
             
-            // Remove existing manual badge if any
-            const existingManualBadge = card.querySelector('.manual-badge');
-            if (existingManualBadge) existingManualBadge.remove();
+            // Remove existing check badge if any
+            const existingCheckBadge = card.querySelector('.check-badge');
+            if (existingCheckBadge) existingCheckBadge.remove();
 
-            // Add manual badge if overridden
-            if (img.manualOverride) {
-                const manualBadge = document.createElement('div');
-                manualBadge.className = 'manual-badge';
-                manualBadge.innerHTML = '<i class="ph ph-hand-tap"></i> Manual';
-                card.appendChild(manualBadge);
+            // Add check badge if checked
+            if (img.isChecked) {
+                const checkBadge = document.createElement('div');
+                checkBadge.className = 'check-badge';
+                checkBadge.innerHTML = '<i class="ph ph-check"></i> Selected';
+                card.appendChild(checkBadge);
             }
             
             const settingsParts = [img.exif.focal, img.exif.aperture, img.exif.shutter, img.exif.iso].filter(Boolean);
@@ -536,7 +573,7 @@
             footer.innerHTML = `
                 <div class="exif-device">${img.exif.device || 'No EXIF Data'}</div>
                 <div class="exif-settings">${settingsHtml || '-'}</div>
-                <div class="reason-tag ${reasonClasses}">${img.reason}${img.manualOverride ? ' • Manual' : ''}</div>
+                <div class="reason-tag ${reasonClasses}">${img.reason}</div>
             `;
         }
 
@@ -580,7 +617,6 @@
             if (!img) return;
             
             img.rating = newRating;
-            img.manualOverride = true;
             
             // Update reason based on new rating
             const reasons = {
@@ -595,7 +631,57 @@
             updateCardUI(img);
             recalcStats();
             updateTabCounts();
-            applyFilter(); // Refresh current filter view
+            applyFilter();
+        }
+
+        // NEW FUNCTION: TOGGLE CHECK BY RATING
+        function toggleCheckByRating(ratingFilter) {
+            let targetRating;
+            if (ratingFilter === '5') targetRating = 5;
+            else if (ratingFilter === '4') targetRating = 4;
+            else if (ratingFilter === '3') targetRating = 3;
+            else if (ratingFilter === 'bad') targetRating = 'bad'; // 1 or 2
+            
+            // Cek apakah ada SATU SAJA foto di kategori ini yang BELUM tercentang
+            // Kalau ada yang belum, berarti kita mau CENTANG SEMUA
+            // Kalau semuanya sudah tercentang, berarti kita mau HAPUS CENTANG SEMUA
+            
+            const relevantImages = state.images.filter(img => {
+                if (targetRating === 'bad') return img.rating <= 2;
+                return img.rating === targetRating;
+            });
+            
+            const hasUnchecked = relevantImages.some(img => !img.isChecked);
+            
+            // Apply toggle
+            relevantImages.forEach(img => {
+                img.isChecked = hasUnchecked;
+            });
+            
+            recalcStats();
+            updateTabCounts();
+            updateTabVisuals();
+        }
+
+        function updateTabVisuals() {
+            // Update class 'checked' pada tab berdasarkan status centang
+            const tabs = els.filterTabs.querySelectorAll('.filter-tab[data-toggle="check"]');
+            tabs.forEach(tab => {
+                const filter = tab.dataset.filter;
+                let allChecked = false;
+                
+                const relevantImages = state.images.filter(img => {
+                    if (filter === 'bad') return img.rating <= 2;
+                    return img.rating == filter; // loose equality for string/number
+                });
+                
+                if (relevantImages.length > 0) {
+                    allChecked = relevantImages.every(img => img.isChecked);
+                }
+                
+                if (allChecked) tab.classList.add('checked');
+                else tab.classList.remove('checked');
+            });
         }
 
         function updateStats(rating) {
@@ -608,14 +694,14 @@
         }
 
         function recalcStats() {
-            state.stats = { 5: 0, 4: 0, 3: 0, bad: 0, manual: 0, total: state.images.length };
+            state.stats = { 5: 0, 4: 0, 3: 0, bad: 0, checked: 0, total: state.images.length };
             state.images.forEach(i => {
                 if (i.rating === 5) state.stats[5]++;
                 else if (i.rating === 4) state.stats[4]++;
                 else if (i.rating === 3) state.stats[3]++;
                 else state.stats.bad++;
                 
-                if (i.manualOverride) state.stats.manual++;
+                if (i.isChecked) state.stats.checked++;
             });
             updateStatsDisplay();
         }
@@ -633,7 +719,7 @@
             els.tabCounts[4].innerText = state.stats[4];
             els.tabCounts[3].innerText = state.stats[3];
             els.tabCounts.bad.innerText = state.stats.bad;
-            els.tabCounts.manual.innerText = state.stats.manual;
+            els.tabCounts.checked.innerText = state.stats.checked;
         }
 
         function applyFilter() {
@@ -646,11 +732,15 @@
                 let show = false;
                 switch(state.currentFilter) {
                     case 'all': show = true; break;
+                    case 'checked': show = img.isChecked; break;
+                    // Note: Filter by rating (5,4,3,bad) is now handled by toggle logic
+                    // But we still keep them as view filters if needed, 
+                    // OR we can remove them from switch if purely toggle.
+                    // For this version, let's keep them as VIEW ONLY filters too.
                     case '5': show = img.rating === 5; break;
                     case '4': show = img.rating === 4; break;
                     case '3': show = img.rating === 3; break;
                     case 'bad': show = img.rating <= 2; break;
-                    case 'manual': show = img.manualOverride; break;
                 }
                 
                 card.style.display = show ? 'flex' : 'none';
@@ -679,15 +769,16 @@
         }
 
         async function exportTopPicks() {
-            const toExport = state.images.filter(i => i.rating >= 4);
-            if (!toExport.length) return alert('Tidak ada foto bintang 4 atau 5 untuk diexport!');
+            // Export hanya foto yang DICENTANG (isChecked = true)
+            const toExport = state.images.filter(i => i.isChecked);
+            if (!toExport.length) return alert('Tidak ada foto yang tercentang untuk diexport!');
 
             const originalText = els.btnExport.innerHTML;
             els.btnExport.innerHTML = '<i class="ph ph-spinner animate-spin"></i> Packing...';
             els.btnExport.disabled = true;
 
             const zip = new JSZip();
-            const folder = zip.folder("procull-vision-masterpiece");
+            const folder = zip.folder("procull-selected");
 
             for (let img of toExport) {
                 try {
@@ -698,7 +789,7 @@
             }
 
             const content = await zip.generateAsync({ type: "blob" });
-            saveAs(content, `procull-vision-${Date.now()}.zip`);
+            saveAs(content, `procull-selected-${Date.now()}.zip`);
 
             els.btnExport.innerHTML = originalText;
             els.btnExport.disabled = false;
